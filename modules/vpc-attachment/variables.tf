@@ -37,15 +37,22 @@ variable "subnet_ids" {
   }
 }
 
-variable "route_domain" {
-  description = "ADR-defined TGW route domain selected for this attachment."
+variable "attachment_key" {
+  description = "Network-catalog key used by the TGW owner to locate and classify this attachment. It is not a route domain."
   type        = string
   nullable    = false
 
   validation {
-    condition     = contains(["prod", "non-prod", "shared", "inspection", "on-prem"], var.route_domain)
-    error_message = "route_domain must be prod, non-prod, shared, inspection, or on-prem."
+    condition     = can(regex("^[a-z][a-z0-9-]{2,62}$", var.attachment_key))
+    error_message = "attachment_key must be 3-63 lowercase letters, digits, and hyphens and start with a letter."
   }
+}
+
+variable "appliance_mode_support" {
+  description = "Enable only for a reviewed inspection appliance attachment that requires AZ-affine return traffic. Workload attachments keep it disabled."
+  type        = bool
+  default     = false
+  nullable    = false
 }
 
 variable "tags" {
