@@ -36,3 +36,26 @@ run "rejects_public_asn" {
 
   expect_failures = [var.amazon_side_asn]
 }
+
+run "accepts_an_individual_aws_account_for_ram" {
+  command = plan
+
+  variables {
+    ram_principals = ["111122223333"]
+  }
+
+  assert {
+    condition     = length(aws_ram_principal_association.approved_principal) == 1
+    error_message = "A TGW RAM share must accept an approved 12-digit AWS account ID."
+  }
+}
+
+run "rejects_iam_principal_for_tgw_ram" {
+  command = plan
+
+  variables {
+    ram_principals = ["arn:aws:iam::111122223333:role/not-a-tgw-consumer"]
+  }
+
+  expect_failures = [var.ram_principals]
+}
