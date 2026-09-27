@@ -2,6 +2,11 @@ variable "name" {
   description = "Lowercase attachment name used in tags."
   type        = string
   nullable    = false
+
+  validation {
+    condition     = can(regex("^[a-z][a-z0-9-]{2,62}$", var.name))
+    error_message = "name must be 3-63 lowercase letters, digits, and hyphens and start with a letter."
+  }
 }
 
 variable "transit_gateway_id" {
@@ -38,7 +43,7 @@ variable "subnet_ids" {
 }
 
 variable "attachment_key" {
-  description = "Network-catalog key used by the TGW owner to locate and classify this attachment. It is not a route domain."
+  description = "Network-catalog key used by the TGW owner to locate this attachment. It is not a route domain."
   type        = string
   nullable    = false
 
@@ -56,8 +61,18 @@ variable "appliance_mode_support" {
 }
 
 variable "tags" {
-  description = "Additional required allocation and ownership tags. Name and RouteDomain are computed by the module."
+  description = "Additional required allocation and ownership tags. Name, AttachmentKey, and Component are computed by the module. RouteDomain is reserved for the network account and rejected here."
   type        = map(string)
   default     = {}
   nullable    = false
+
+  validation {
+    condition     = alltrue([for key in keys(var.tags) : !startswith(key, "aws:")])
+    error_message = "tags must not use the reserved aws: prefix."
+  }
+
+  validation {
+    condition     = alltrue([for key in keys(var.tags) : lower(key) != "routedomain"])
+    error_message = "tags must not carry a RouteDomain tag: only the network account classifies an attachment, and a spoke-authored label would misrepresent it."
+  }
 }
