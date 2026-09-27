@@ -1,11 +1,16 @@
 variable "route_table_ids" {
-  description = "Network-account-owned map of route domain to TGW route-table ID, normally output by the TGW hub module."
+  description = "Network-account-owned map of route domain to TGW route-table ID, normally output by the TGW hub module. Every domain has its own route table."
   type        = map(string)
   nullable    = false
 
   validation {
     condition     = length(var.route_table_ids) > 0 && alltrue([for id in values(var.route_table_ids) : can(regex("^tgw-rtb-[0-9a-f]+$", id))])
     error_message = "route_table_ids must contain one or more Transit Gateway route-table IDs."
+  }
+
+  validation {
+    condition     = length(distinct(values(var.route_table_ids))) == length(var.route_table_ids)
+    error_message = "route_table_ids must map every route domain to its own route table; two domains that share one route-table ID are a single domain and defeat segmentation."
   }
 }
 
@@ -18,16 +23,20 @@ variable "approved_account_domains" {
     condition     = alltrue([for account_id in keys(var.approved_account_domains) : can(regex("^[0-9]{12}$", account_id))])
     error_message = "approved_account_domains keys must be 12-digit AWS account IDs."
   }
-
 }
 
 variable "attachments" {
-  description = "Network-approved cross-account VPC attachment IDs and their expected VPC-owner account IDs. Route domains are intentionally absent."
+  description = "Network-approved cross-account VPC attachment IDs and their expected VPC-owner account IDs, keyed by the catalog key the spoke was given. Route domains are intentionally absent."
   type = map(object({
     attachment_id = string
     account_id    = string
   }))
   nullable = false
+
+  validation {
+    condition     = alltrue([for key in keys(var.attachments) : can(regex("^[a-z][a-z0-9-]{2,62}$", key))])
+    error_message = "attachments keys must be 3-63 lowercase letters, digits, and hyphens and start with a letter, the same rule the spoke's attachment_key follows."
+  }
 
   validation {
     condition = alltrue([
@@ -45,10 +54,9 @@ variable "attachments" {
 }
 
 variable "propagation_matrix" {
-  description = "Network-owned source-domain to destination-route-domain propagation policy. Omitted destinations receive no propagated route."
+  description = "Network-owned source-domain to destination-route-domain propagation policy. Omitted destinations receive no propagated route. Every domain that has an attachment needs an entry, even an empty one."
   type        = map(set(string))
   nullable    = false
-
 }
 
 variable "static_routes" {
@@ -63,18 +71,29 @@ variable "static_routes" {
   nullable = false
 
   validation {
-    condition = alltrue([
-      for route in values(var.static_routes) :
-      can(cidrhost(route.destination_cidr_block, 0)) &&
-      (route.blackhole ? route.target_attachment_key == null : route.target_attachment_key != null)
-    ])
-    error_message = "Each static route needs a CIDR and exactly one of blackhole=true or target_attachment_key."
+    condition     = alltrue([for route in values(var.static_routes) : try(cidrsubnet(route.destination_cidr_block, 0, 0) == route.destination_cidr_block, false)])
+    error_message = "Every static route destination_cidr_block must be a canonical CIDR block whose host bits are zero, for example 10.0.0.0/8."
+  }
+
+  validation {
+    condition     = alltrue([for route in values(var.static_routes) : route.blackhole ? route.target_attachment_key == null : route.target_attachment_key != null])
+    error_message = "Each static route needs exactly one of blackhole=true or target_attachment_key."
+  }
+
+  validation {
+    condition     = length(distinct([for route in values(var.static_routes) : "${route.route_table_domain}|${route.destination_cidr_block}"])) == length(var.static_routes)
+    error_message = "Each route_table_domain and destination_cidr_block pair may appear only once in static_routes."
   }
 }
 
 variable "tags" {
-  description = "Additional ownership and allocation tags applied to network-account routing resources."
+  description = "Additional ownership and allocation tags applied to network-account routing resources. Component and RouteDomain are computed by the module."
   type        = map(string)
   default     = {}
   nullable    = false
+
+  validation {
+    condition     = alltrue([for key in keys(var.tags) : !startswith(key, "aws:")])
+    error_message = "tags must not use the reserved aws: prefix."
+  }
 }

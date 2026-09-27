@@ -32,9 +32,21 @@ resource "terraform_data" "network_policy" {
 
     precondition {
       condition = alltrue([
-        for attachment in values(var.attachments) : contains(keys(var.propagation_matrix), var.approved_account_domains[attachment.account_id])
+        for attachment in values(var.attachments) :
+        !contains(keys(var.approved_account_domains), attachment.account_id) || contains(keys(var.propagation_matrix), lookup(var.approved_account_domains, attachment.account_id, ""))
       ])
       error_message = "Every attachment's network-assigned domain must have a propagation-matrix entry, even when it is empty."
+    }
+
+    # ADR 0003: the routing composition must reject direct prod to non-prod
+    # propagation in either direction. A domain X propagating into domain Y
+    # installs X's attachment routes in Y's table, so Y can then reach X.
+    precondition {
+      condition = (
+        !contains(lookup(var.propagation_matrix, local.production_domain, toset([])), local.non_production_domain) &&
+        !contains(lookup(var.propagation_matrix, local.non_production_domain, toset([])), local.production_domain)
+      )
+      error_message = "propagation_matrix must not propagate prod into non-prod or non-prod into prod (ADR 0003)."
     }
 
     precondition {
@@ -44,6 +56,19 @@ resource "terraform_data" "network_policy" {
         (route.blackhole || contains(keys(var.attachments), route.target_attachment_key == null ? "" : route.target_attachment_key))
       ])
       error_message = "Static routes must use a known route-table domain and target an approved attachment unless blackhole=true."
+    }
+
+    # The same isolation holds for static routes: a route in one table that
+    # targets an attachment of the other domain is a direct prod to non-prod path.
+    precondition {
+      condition = alltrue([
+        for route in values(var.static_routes) :
+        (route.blackhole || route.target_attachment_key == null) ? true : (
+          !(route.route_table_domain == local.production_domain && lookup(local.attachment_domains, route.target_attachment_key, "") == local.non_production_domain) &&
+          !(route.route_table_domain == local.non_production_domain && lookup(local.attachment_domains, route.target_attachment_key, "") == local.production_domain)
+        )
+      ])
+      error_message = "A static route must not target a non-prod attachment from the prod route table or a prod attachment from the non-prod route table (ADR 0003)."
     }
   }
 }
