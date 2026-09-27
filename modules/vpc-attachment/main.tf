@@ -1,3 +1,7 @@
+# A spoke can only REQUEST an attachment. The attachment joins no route table:
+# default association and propagation are off, and there is deliberately no
+# input for a route domain. The Transit Gateway owner accepts, classifies,
+# associates, and propagates it with modules/network-routing.
 resource "aws_ec2_transit_gateway_vpc_attachment" "this" {
   subnet_ids                                      = tolist(var.subnet_ids)
   transit_gateway_id                              = var.transit_gateway_id

@@ -1,4 +1,8 @@
 locals {
+  # ADR 0003: production and non-production never route to each other directly.
+  production_domain     = "prod"
+  non_production_domain = "non-prod"
+
   attachment_domains = {
     for key, attachment in var.attachments :
     key => lookup(var.approved_account_domains, attachment.account_id, "")
