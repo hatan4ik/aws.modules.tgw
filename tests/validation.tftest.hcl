@@ -45,7 +45,7 @@ run "accepts_a_fifty_character_name_whose_flow_log_role_fits_iam" {
   command = plan
 
   variables {
-    name = "a-name-of-exactly-fifty-characters-0123456789-abcde"
+    name = "a-name-of-exactly-fifty-characters-0123456789-abcd"
   }
 
   assert {
@@ -58,7 +58,7 @@ run "rejects_a_name_whose_flow_log_role_would_exceed_the_iam_limit" {
   command = plan
 
   variables {
-    name = "a-name-of-exactly-fifty-one-characters-0123456789-abc"
+    name = "a-name-of-exactly-fifty-characters-0123456789-abcde"
   }
 
   expect_failures = [var.name]
