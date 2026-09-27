@@ -1,0 +1,106 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "TransitGatewayUnderTest",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:CreateTransitGateway", "ec2:DeleteTransitGateway", "ec2:DescribeTransitGateways", "ec2:ModifyTransitGateway",
+        "ec2:CreateTransitGatewayRouteTable", "ec2:DeleteTransitGatewayRouteTable", "ec2:DescribeTransitGatewayRouteTables",
+        "ec2:DescribeTransitGatewayAttachments",
+        "ec2:CreateFlowLogs", "ec2:DeleteFlowLogs", "ec2:DescribeFlowLogs",
+        "ec2:CreateTags", "ec2:DeleteTags", "ec2:DescribeTags"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ResourceShare",
+      "Effect": "Allow",
+      "Action": [
+        "ram:CreateResourceShare", "ram:UpdateResourceShare", "ram:DeleteResourceShare",
+        "ram:AssociateResourceShare", "ram:DisassociateResourceShare",
+        "ram:GetResourceShares", "ram:GetResourceShareAssociations", "ram:ListResourceSharePermissions",
+        "ram:TagResource", "ram:UntagResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "FlowLogGroupAndFilters",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup", "logs:DeleteLogGroup", "logs:PutRetentionPolicy", "logs:DeleteRetentionPolicy",
+        "logs:AssociateKmsKey", "logs:DisassociateKmsKey",
+        "logs:PutMetricFilter", "logs:DeleteMetricFilter",
+        "logs:TagResource", "logs:UntagResource", "logs:ListTagsForResource", "logs:TagLogGroup", "logs:UntagLogGroup", "logs:ListTagsLogGroup"
+      ],
+      "Resource": "arn:aws:logs:*:<ACCOUNT_ID>:log-group:/aws/tgw/tgw-it-*:*"
+    },
+    {
+      "Sid": "DescribeLogGroupsAndFiltersTakeNoNamedResource",
+      "Effect": "Allow",
+      "Action": [
+        "logs:DescribeLogGroups", "logs:DescribeMetricFilters"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "RejectedTrafficAlarm",
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:PutMetricAlarm", "cloudwatch:DeleteAlarms",
+        "cloudwatch:TagResource", "cloudwatch:UntagResource", "cloudwatch:ListTagsForResource"
+      ],
+      "Resource": "arn:aws:cloudwatch:*:<ACCOUNT_ID>:alarm:tgw-it-*"
+    },
+    {
+      "Sid": "DescribeAlarmsTakesNoNamedResource",
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:DescribeAlarms"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CreateTheFlowLogKey",
+      "Effect": "Allow",
+      "Action": [
+        "kms:CreateKey", "kms:ListAliases"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ManageTheFlowLogKeyAndAlias",
+      "Effect": "Allow",
+      "Action": [
+        "kms:DescribeKey", "kms:GetKeyPolicy", "kms:PutKeyPolicy", "kms:GetKeyRotationStatus", "kms:EnableKeyRotation",
+        "kms:ListResourceTags", "kms:TagResource", "kms:UntagResource", "kms:ScheduleKeyDeletion",
+        "kms:CreateAlias", "kms:DeleteAlias"
+      ],
+      "Resource": [
+        "arn:aws:kms:*:<ACCOUNT_ID>:key/*",
+        "arn:aws:kms:*:<ACCOUNT_ID>:alias/tgw-it-*"
+      ]
+    },
+    {
+      "Sid": "FlowLogDeliveryRole",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateRole", "iam:DeleteRole", "iam:GetRole", "iam:UpdateRole", "iam:UpdateAssumeRolePolicy",
+        "iam:TagRole", "iam:UntagRole", "iam:ListRolePolicies", "iam:ListAttachedRolePolicies", "iam:ListInstanceProfilesForRole",
+        "iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:GetRolePolicy"
+      ],
+      "Resource": "arn:aws:iam::<ACCOUNT_ID>:role/tgw-it-*"
+    },
+    {
+      "Sid": "PassTheDeliveryRoleToFlowLogs",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "arn:aws:iam::<ACCOUNT_ID>:role/tgw-it-*",
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": "vpc-flow-logs.amazonaws.com"
+        }
+      }
+    }
+  ]
+}
