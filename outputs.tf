@@ -17,11 +17,12 @@ output "ram_resource_share_arn" {
 }
 
 output "flow_logs" {
-  description = "Transit Gateway Flow Log, encrypted log group, KMS key, and rejected-traffic alarm identifiers."
+  description = "Transit Gateway Flow Log, encrypted log group, KMS key, rejected-traffic alarm, and delivery-stopped alarm identifiers."
   value = {
     id                   = aws_flow_log.transit_gateway.id
     log_group_name       = aws_cloudwatch_log_group.flow_logs.name
     kms_key_arn          = aws_kms_key.flow_logs.arn
     rejected_traffic_arn = aws_cloudwatch_metric_alarm.rejected_traffic.arn
+    delivery_stopped_arn = aws_cloudwatch_metric_alarm.flow_log_delivery_stopped.arn
   }
 }

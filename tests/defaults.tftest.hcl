@@ -275,6 +275,41 @@ run "wires_the_rejected_traffic_alarm_to_both_drop_filters" {
   }
 }
 
+# The rejected-traffic alarm is quiet on silence, so it cannot see delivery
+# stop. The heartbeat must read the log group's own ingestion metric and treat
+# silence as a failure.
+run "alarms_when_flow_log_delivery_stops" {
+  command = plan
+
+  assert {
+    condition = (
+      aws_cloudwatch_metric_alarm.flow_log_delivery_stopped.alarm_name == "test-regional-tgw-tgw-flow-log-delivery-stopped" &&
+      aws_cloudwatch_metric_alarm.flow_log_delivery_stopped.namespace == "AWS/Logs" &&
+      aws_cloudwatch_metric_alarm.flow_log_delivery_stopped.metric_name == "IncomingLogEvents" &&
+      length(aws_cloudwatch_metric_alarm.flow_log_delivery_stopped.dimensions) == 1 &&
+      aws_cloudwatch_metric_alarm.flow_log_delivery_stopped.dimensions["LogGroupName"] == "/aws/tgw/test-regional-tgw/flow-logs"
+    )
+    error_message = "The heartbeat reads IncomingLogEvents of this hub's flow-log group."
+  }
+
+  assert {
+    condition = (
+      aws_cloudwatch_metric_alarm.flow_log_delivery_stopped.comparison_operator == "LessThanThreshold" &&
+      aws_cloudwatch_metric_alarm.flow_log_delivery_stopped.threshold == 1 &&
+      aws_cloudwatch_metric_alarm.flow_log_delivery_stopped.statistic == "Sum" &&
+      aws_cloudwatch_metric_alarm.flow_log_delivery_stopped.period == 3600 &&
+      aws_cloudwatch_metric_alarm.flow_log_delivery_stopped.evaluation_periods == 1 &&
+      aws_cloudwatch_metric_alarm.flow_log_delivery_stopped.treat_missing_data == "breaching"
+    )
+    error_message = "An hour with no records alarms, and missing data (no records at all) counts as breaching."
+  }
+
+  assert {
+    condition     = length(aws_cloudwatch_metric_alarm.flow_log_delivery_stopped.alarm_actions) == 0 && aws_cloudwatch_metric_alarm.flow_log_delivery_stopped.tags["Component"] == "transit-gateway-hub"
+    error_message = "No alarm action is invented, and the alarm carries the hub tags."
+  }
+}
+
 run "passes_every_advisory_check_with_the_defaults" {
   command = plan
 

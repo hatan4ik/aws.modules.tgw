@@ -95,7 +95,7 @@ variable "rejected_traffic_alarm_threshold" {
 }
 
 variable "rejected_traffic_alarm_actions" {
-  description = "Optional SNS or incident-management action ARNs notified by the rejected-TGW-traffic alarm. CloudWatch allows at most five."
+  description = "Optional SNS or incident-management action ARNs notified by the rejected-TGW-traffic alarm and the flow-log delivery-stopped alarm. CloudWatch allows at most five."
   type        = set(string)
   default     = []
   nullable    = false

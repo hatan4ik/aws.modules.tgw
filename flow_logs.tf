@@ -2,7 +2,10 @@
 # group encrypted with a rotating customer-managed key and is retained for at
 # least a year. Delivery uses a role that only the flow-log service can assume.
 resource "aws_kms_key" "flow_logs" {
-  description             = "Encrypts Transit Gateway Flow Logs for ${var.name}."
+  description = "Encrypts Transit Gateway Flow Logs for ${var.name}."
+  # 30 days is the AWS maximum. A key scheduled for deletion by mistake (a
+  # destroyed hub, a bad apply) leaves the longest possible window to cancel
+  # before every encrypted flow-log record becomes unreadable evidence.
   deletion_window_in_days = 30
   enable_key_rotation     = true
   policy                  = local.flow_logs_kms_policy
@@ -94,6 +97,34 @@ resource "aws_cloudwatch_metric_alarm" "rejected_traffic" {
   threshold           = var.rejected_traffic_alarm_threshold
   treat_missing_data  = "notBreaching"
   alarm_actions       = tolist(var.rejected_traffic_alarm_actions)
+
+  tags = local.common_tags
+}
+
+# The rejected-traffic alarm treats silence as healthy, so it cannot tell "no
+# drops" from "no records": if delivery stops (the role, its trust, or the KMS
+# key breaks), the network evidence disappears and nothing alarms. This
+# heartbeat reads the log group's own CloudWatch Logs IncomingLogEvents metric
+# and treats missing data as breaching, so an hour without a single record is
+# itself an alarm. A hub with no attachments, or no traffic at all, also sends
+# no records and so stays in ALARM until traffic flows; that is the intended
+# reading ("no evidence"), not a fault.
+resource "aws_cloudwatch_metric_alarm" "flow_log_delivery_stopped" {
+  alarm_name          = "${var.name}-tgw-flow-log-delivery-stopped"
+  alarm_description   = "No Transit Gateway flow-log records reached ${aws_cloudwatch_log_group.flow_logs.name} for an hour. Network evidence is not being recorded. Check the flow log's delivery status, the delivery role and its trust policy, and the KMS key state and policy; on an idle hub with no attachments this is expected."
+  comparison_operator = "LessThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "IncomingLogEvents"
+  namespace           = "AWS/Logs"
+  period              = 3600
+  statistic           = "Sum"
+  threshold           = 1
+  treat_missing_data  = "breaching"
+  alarm_actions       = tolist(var.rejected_traffic_alarm_actions)
+
+  dimensions = {
+    LogGroupName = aws_cloudwatch_log_group.flow_logs.name
+  }
 
   tags = local.common_tags
 }

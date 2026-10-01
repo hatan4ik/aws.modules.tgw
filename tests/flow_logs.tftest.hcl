@@ -144,6 +144,11 @@ run "notifies_the_supplied_alarm_actions_at_a_custom_threshold" {
     condition     = toset(aws_cloudwatch_metric_alarm.rejected_traffic.alarm_actions) == toset(["arn:aws:sns:us-east-1:123456789012:network-sre", "arn:aws:sns:us-east-1:123456789012:network-oncall"])
     error_message = "Every supplied action is wired to the alarm and none is added."
   }
+
+  assert {
+    condition     = toset(aws_cloudwatch_metric_alarm.flow_log_delivery_stopped.alarm_actions) == toset(["arn:aws:sns:us-east-1:123456789012:network-sre", "arn:aws:sns:us-east-1:123456789012:network-oncall"])
+    error_message = "The delivery-stopped alarm notifies the same actions: losing the evidence matters to the same people."
+  }
 }
 
 run "accepts_an_automate_action_without_an_account" {
