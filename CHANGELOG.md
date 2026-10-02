@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- `aws_cloudwatch_metric_alarm.flow_log_delivery_stopped` (`<name>-tgw-flow-log-delivery-stopped`): a heartbeat on the flow-log group's `AWS/Logs` `IncomingLogEvents` metric that fires when fewer than one record arrives in an hour, with missing data treated as breaching. The rejected-traffic alarm is `notBreaching` on silence, so before this a broken delivery role, trust policy, or KMS key silently ended the network evidence. It notifies `rejected_traffic_alarm_actions`. A hub with no attachments or no traffic stays in `ALARM` until traffic flows. New output attribute `flow_logs.delivery_stopped_arn`.
+- `modules/network-routing`: advisory `check "isolation_domains_present"`, which warns when `route_table_ids` has no `prod` or no `non-prod` key. The ADR 0003 isolation preconditions match those names literally, so a catalog that names its domains differently lost the guard without any message.
+- README `Quotas` section: route tables per gateway, routes per gateway, attachments per gateway, and attachments per VPC, documented and deliberately not validated.
+
+### Changed
+
+- **Breaking (no known consumer):** the `vpc-attachment` output attribute `attachment.appliance_mode_enable` is renamed `attachment.appliance_mode_support`, matching the input it reports. No root in the platform repository or any other `hatan4ik` repository reads it. A consumer that does replaces `.appliance_mode_enable` with `.appliance_mode_support`; the value and type are unchanged.
+- Comments explain the 30-day (maximum) KMS deletion window on the flow-log key and why `vpn_ecmp_support` stays enabled although the module creates no VPN: the separately approved VPN composition attaches to this gateway and cannot set a gateway-level option, and `enable` is the AWS default.
+- `docs/DESIGN.md` records the removal of `ram_principal_arns` and its duplicated validation as a v2 item, with the audit's reasoning.
+
+### Fixed
+
+- `examples/segmented-domains`: `on-prem` propagated into `non-prod` and `shared`, but neither propagated back into `on-prem`, so those domains had a route to on-prem with no return path. Every pair in the example matrix is now symmetric.
+
 ## [1.0.0] - 2026-09-27
 
 Hardening and standards release. It preserves the design accepted in ADR 0003 and changes no input, output, or resource address of v0.2.0: a consumer changes only the source ref. [docs/UPGRADE-1.0.md](docs/UPGRADE-1.0.md) lists the stricter validations and the one new resource. The reasoning, and what was deferred to v2, is in [docs/DESIGN.md](docs/DESIGN.md).

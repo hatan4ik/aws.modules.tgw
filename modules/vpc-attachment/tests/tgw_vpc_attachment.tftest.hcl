@@ -59,7 +59,7 @@ run "is_unclassified_by_construction" {
   }
 
   assert {
-    condition     = toset(keys(output.attachment)) == toset(["id", "attachment_key", "appliance_mode_enable"]) && output.attachment.attachment_key == "prod-app-use2" && output.attachment.appliance_mode_enable == false
+    condition     = toset(keys(output.attachment)) == toset(["id", "attachment_key", "appliance_mode_support"]) && output.attachment.attachment_key == "prod-app-use2" && output.attachment.appliance_mode_support == false
     error_message = "The output hands the network account the attachment ID and catalog key and nothing that classifies."
   }
 }
@@ -95,7 +95,7 @@ run "enables_appliance_mode_only_when_declared" {
   }
 
   assert {
-    condition     = aws_ec2_transit_gateway_vpc_attachment.this.appliance_mode_support == "enable" && output.attachment.appliance_mode_enable
+    condition     = aws_ec2_transit_gateway_vpc_attachment.this.appliance_mode_support == "enable" && output.attachment.appliance_mode_support
     error_message = "A reviewed inspection attachment can enable appliance mode, and the output reports it."
   }
 }

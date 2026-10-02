@@ -12,11 +12,14 @@ locals {
   # that is not listed receives no route: deny by absence. prod and non-prod
   # never appear in each other's list, and the module rejects the plan if they
   # do (ADR 0003). Every domain that has an attachment needs an entry, even an
-  # empty one.
+  # empty one. Reachability needs both directions: every pair below appears in
+  # each other's list (on-prem reaches prod, non-prod, and shared, and each of
+  # them propagates back into on-prem). A one-way entry gives a route with no
+  # return path, so replies are dropped and the rejected-traffic alarm fires.
   propagation_matrix = {
     prod       = ["prod", "shared", "on-prem"]
-    non-prod   = ["non-prod", "shared"]
-    shared     = ["prod", "non-prod", "shared"]
+    non-prod   = ["non-prod", "shared", "on-prem"]
+    shared     = ["prod", "non-prod", "shared", "on-prem"]
     inspection = ["inspection"]
     on-prem    = ["prod", "non-prod", "shared", "on-prem"]
   }

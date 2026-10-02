@@ -75,6 +75,15 @@ mock_provider "aws" {
   }
 }
 
+# The two alarms share the mock_resource default above; give the second its own
+# ARN so the output can prove each key reports the right alarm.
+override_resource {
+  target = aws_cloudwatch_metric_alarm.flow_log_delivery_stopped
+  values = {
+    arn = "arn:aws:cloudwatch:us-east-1:123456789012:alarm:test-regional-tgw-tgw-flow-log-delivery-stopped"
+  }
+}
+
 variables {
   name            = "test-regional-tgw"
   amazon_side_asn = 64512
@@ -162,7 +171,8 @@ run "reports_the_documented_outputs" {
       log_group_name       = "/aws/tgw/test-regional-tgw/flow-logs"
       kms_key_arn          = "arn:aws:kms:us-east-1:123456789012:key/11111111-2222-3333-4444-555555555555"
       rejected_traffic_arn = "arn:aws:cloudwatch:us-east-1:123456789012:alarm:test-regional-tgw-tgw-rejected-traffic"
+      delivery_stopped_arn = "arn:aws:cloudwatch:us-east-1:123456789012:alarm:test-regional-tgw-tgw-flow-log-delivery-stopped"
     }
-    error_message = "flow_logs reports the flow log, the encrypted log group, its key, and the rejected-traffic alarm."
+    error_message = "flow_logs reports the flow log, the encrypted log group, its key, the rejected-traffic alarm, and the delivery-stopped alarm."
   }
 }

@@ -143,6 +143,7 @@ Flow logs
 - All traffic is recorded at 60-second aggregation. The log group is encrypted with a customer-managed key with rotation and a 30-day deletion window; its policy allows the account root and CloudWatch Logs in this Region, only in the encryption context of this hub's log group. Retention is at least 365 days.
 - The delivery role can be assumed only by the flow-log service, only for this account and Region (`aws:SourceAccount`, `aws:SourceArn`), and may write only to this hub's log group.
 - Transit Gateway flow-log records have no accept/reject action. "Rejected" therefore means dropped by the hub: `packets-lost-no-route` (the deny-by-default case) or `packets-lost-blackhole` (an explicit blackhole route). Each has a metric filter feeding the `Platform/TransitGateway` `TransitGatewayRejectedTraffic` metric, and the alarm sums it over five minutes. Missing data does not alarm. Set `rejected_traffic_alarm_actions` so someone is told.
+- Because that alarm is quiet on silence, a second alarm watches delivery itself: `<name>-tgw-flow-log-delivery-stopped` reads the log group's `AWS/Logs` `IncomingLogEvents` metric and fires when fewer than one record arrives in an hour, treating missing data as breaching. A broken delivery role, trust policy, or KMS key therefore alarms instead of silently ending the network evidence. It notifies the same `rejected_traffic_alarm_actions`. A hub with no attachments or no traffic sends no records, so it sits in `ALARM` until traffic flows; that is expected.
 - The principal that applies the root needs `ec2:*TransitGateway*` and `ec2:CreateFlowLogs`, RAM share management, KMS key and alias management, CloudWatch Logs and alarm management, and IAM role management for `<name>-tgw-flow-logs`, including `iam:PassRole` to `vpc-flow-logs.amazonaws.com`. [tests/integration/iam](tests/integration/iam/integration-permissions-policy.json) lists a concrete set.
 
 Not created here
@@ -158,7 +159,7 @@ Not created here
 - `flow_log_retention_in_days` accepts only the periods CloudWatch Logs supports, all at least 365. The KMS key is scheduled for deletion with a 30-day window when the hub is destroyed.
 - Deleting a Transit Gateway waits for every attachment to be gone. Remove `network-routing` and the spokes' attachments first.
 - The module reads the partition, Region, and account identity once, to name the log-group ARN in the key policy and the delivery role before the log group exists.
-- Three `check` blocks warn without blocking: `deprecated_ram_principal_arns`, `ram_principal_arns_ignored`, and `route_domains_cover_adr_0003`. None fires on the defaults.
+- Three `check` blocks in the root warn without blocking: `deprecated_ram_principal_arns`, `ram_principal_arns_ignored`, and `route_domains_cover_adr_0003`. None fires on the defaults. `network-routing` adds `isolation_domains_present`, which warns when `route_table_ids` has no `prod` or no `non-prod` key: the ADR 0003 isolation preconditions match only those names, so domains named any other way (for example `production`, `nonprod`) are not protected.
 - `network-routing` accepts an attachment before it can compare the owner AWS reports with the approved account (there is no earlier API). If they differ, the apply fails, nothing is associated or propagated, and the accepted attachment stays unrouted until you remove it from the catalog and reject it.
 
 ## Testing
@@ -182,7 +183,20 @@ The full rationale, including what changed from v0.2.0 and what was deliberately
 
 - Terraform `>= 1.7.0, < 2.0.0`. AWS provider `>= 6.35.0, < 7.0.0`. No module declares `configuration_aliases`; a spoke runs with its own provider in its own root, and the examples show the provider blocks.
 - One Transit Gateway in one Region per module call. Add a hub per Region; peering between hubs is a separate approved composition.
-- The interface is unchanged from v0.2.0. Additions arrive as optional inputs and outputs; the deprecated `ram_principal_arns` input is removed only in v2.
+- The interface is unchanged from v0.2.0 except for one rename after 1.0.0: the `vpc-attachment` output attribute `attachment.appliance_mode_enable` is now `attachment.appliance_mode_support`, matching its input (see the CHANGELOG). Additions arrive as optional inputs and outputs; the deprecated `ram_principal_arns` input is removed only in v2.
+
+## Quotas
+
+The module validates nothing against AWS service quotas, because they differ per account and most can be raised. Size `route_domains`, `attachments`, and `static_routes` against these Transit Gateway quotas (defaults at the time of writing; check the current values and whether each is adjustable in the Service Quotas console under Amazon VPC / Transit Gateway, or in the [Transit Gateway quotas](https://docs.aws.amazon.com/vpc/latest/tgw/transit-gateway-quotas.html) reference):
+
+| Quota | Default | What counts against it here |
+| --- | --- | --- |
+| Route tables per Transit Gateway | 20, adjustable | One per entry in `route_domains`. The five ADR 0003 domains use 5. |
+| Routes across all route tables of a Transit Gateway | 10,000 | Every propagated route (each attachment's VPC CIDRs, once per destination domain in `propagation_matrix`) plus every entry in `static_routes`, blackholes included. |
+| Attachments per Transit Gateway | 5,000 | Every spoke attachment accepted through `network-routing`, plus VPN, peering, Direct Connect, and Connect attachments made by other compositions. |
+| Transit Gateway attachments per VPC | 5 | Per spoke VPC, across all hubs. |
+
+A plan that exceeds a quota passes every module validation and fails at apply with an AWS limit error.
 
 ## Versioning and releases
 
@@ -242,6 +256,7 @@ No modules.
 | [aws_cloudwatch_log_group.flow_logs](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_log_group) | resource |
 | [aws_cloudwatch_log_metric_filter.blackholed_traffic](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_log_metric_filter) | resource |
 | [aws_cloudwatch_log_metric_filter.rejected_traffic](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_log_metric_filter) | resource |
+| [aws_cloudwatch_metric_alarm.flow_log_delivery_stopped](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_metric_alarm) | resource |
 | [aws_cloudwatch_metric_alarm.rejected_traffic](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_metric_alarm) | resource |
 | [aws_ec2_transit_gateway.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/ec2_transit_gateway) | resource |
 | [aws_ec2_transit_gateway_route_table.domain](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/ec2_transit_gateway_route_table) | resource |
@@ -266,7 +281,7 @@ No modules.
 | <a name="input_name"></a> [name](#input\_name) | Lowercase Transit Gateway hub name used in resource names and tags. At most 50 characters because the flow-log role is named <name>-tgw-flow-logs and IAM role names are limited to 64. | `string` | n/a | yes |
 | <a name="input_ram_principal_arns"></a> [ram\_principal\_arns](#input\_ram\_principal\_arns) | Deprecated compatibility input, removed in v2. Use ram\_principals, which also accepts 12-digit AWS account IDs. Ignored when ram\_principals is set. | `set(string)` | `[]` | no |
 | <a name="input_ram_principals"></a> [ram\_principals](#input\_ram\_principals) | AWS account IDs or AWS Organizations organization/OU ARNs permitted to create VPC attachments to this TGW. All must be inside the organization: the share never allows external principals. null falls back to the deprecated ram\_principal\_arns; an empty set shares with nobody. | `set(string)` | `null` | no |
-| <a name="input_rejected_traffic_alarm_actions"></a> [rejected\_traffic\_alarm\_actions](#input\_rejected\_traffic\_alarm\_actions) | Optional SNS or incident-management action ARNs notified by the rejected-TGW-traffic alarm. CloudWatch allows at most five. | `set(string)` | `[]` | no |
+| <a name="input_rejected_traffic_alarm_actions"></a> [rejected\_traffic\_alarm\_actions](#input\_rejected\_traffic\_alarm\_actions) | Optional SNS or incident-management action ARNs notified by the rejected-TGW-traffic alarm and the flow-log delivery-stopped alarm. CloudWatch allows at most five. | `set(string)` | `[]` | no |
 | <a name="input_rejected_traffic_alarm_threshold"></a> [rejected\_traffic\_alarm\_threshold](#input\_rejected\_traffic\_alarm\_threshold) | Rejected TGW flow-log records (dropped for lack of a route or by a blackhole route) that trigger the five-minute rejected-traffic alarm. | `number` | `1` | no |
 | <a name="input_route_domains"></a> [route\_domains](#input\_route\_domains) | Network-owned TGW route domains, one deny-by-default route table each. Attachments are associated later by the separate network-routing module. The default is the five domains of ADR 0003. | `set(string)` | <pre>[<br/>  "prod",<br/>  "non-prod",<br/>  "shared",<br/>  "inspection",<br/>  "on-prem"<br/>]</pre> | no |
 | <a name="input_tags"></a> [tags](#input\_tags) | Additional required allocation and ownership tags. Name and Component tags are computed by the module and cannot be overridden. | `map(string)` | `{}` | no |
@@ -275,7 +290,7 @@ No modules.
 
 | Name | Description |
 |------|-------------|
-| <a name="output_flow_logs"></a> [flow\_logs](#output\_flow\_logs) | Transit Gateway Flow Log, encrypted log group, KMS key, and rejected-traffic alarm identifiers. |
+| <a name="output_flow_logs"></a> [flow\_logs](#output\_flow\_logs) | Transit Gateway Flow Log, encrypted log group, KMS key, rejected-traffic alarm, and delivery-stopped alarm identifiers. |
 | <a name="output_ram_resource_share_arn"></a> [ram\_resource\_share\_arn](#output\_ram\_resource\_share\_arn) | RAM resource share ARN used to audit approved TGW attachment principals. |
 | <a name="output_route_table_ids"></a> [route\_table\_ids](#output\_route\_table\_ids) | Network-owned route-domain to TGW route-table ID mapping consumed by the separate network-routing module. |
 | <a name="output_transit_gateway"></a> [transit\_gateway](#output\_transit\_gateway) | Regional TGW identifiers needed by separately approved network routing, workload attachment, peering, and VPN composition. |

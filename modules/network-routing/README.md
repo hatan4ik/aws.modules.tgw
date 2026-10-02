@@ -54,6 +54,7 @@ See [`examples/segmented-domains`](../../examples/segmented-domains) for the hub
 | `prod` never propagates into `non-prod` or the reverse, and a static route in one of those tables never targets an attachment of the other (ADR 0003). | Preconditions on `terraform_data.network_policy`. Blackholes are always allowed. |
 | A static route is a canonical CIDR and exactly one of a blackhole or an approved attachment, once per table and prefix. | Validation on `static_routes`, and a precondition for the target. |
 | Nothing joins a default route table. | `transit_gateway_default_route_table_association` and `..._propagation` are false on the accepter. |
+| The isolation rule actually applies: `route_table_ids` has `prod` and `non-prod` keys. | Advisory `check "isolation_domains_present"` (warns, does not block). The isolation preconditions match only those two names, so a catalog that names its domains differently, for example `production` and `nonprod`, would otherwise lose the rule with no message. |
 
 Every resource depends on `terraform_data.network_policy`, so a failed rule creates nothing.
 
