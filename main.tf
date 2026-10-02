@@ -23,7 +23,13 @@ resource "aws_ec2_transit_gateway" "this" {
   # Cross-VPC security-group references would bypass the explicit, account-owned
   # security-group policy. Keep this disabled unless a future ADR changes it.
   security_group_referencing_support = "disable"
-  vpn_ecmp_support                   = "enable"
+
+  # This module creates no VPN attachment, but the separately approved VPN
+  # composition (ADR 0003, ADR 0005) attaches to this gateway and cannot set a
+  # gateway-level option itself. ECMP lets that composition balance across
+  # multiple VPN tunnels; it has no effect until a VPN attachment exists. It is
+  # also the AWS default, so stating it changes nothing on an existing hub.
+  vpn_ecmp_support = "enable"
 
   tags = local.common_tags
 }
