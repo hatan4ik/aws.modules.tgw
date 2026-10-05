@@ -14,9 +14,12 @@ mock_provider "aws" {
 }
 
 variables {
+  # non-prod has no attachment here; it is present so the catalog uses the
+  # ADR 0003 domain names and the isolation_domains_present check stays quiet.
   route_table_ids = {
-    prod   = "tgw-rtb-0123abcd"
-    shared = "tgw-rtb-89abcdef"
+    prod     = "tgw-rtb-0123abcd"
+    non-prod = "tgw-rtb-4567cdef"
+    shared   = "tgw-rtb-89abcdef"
   }
 
   approved_account_domains = {

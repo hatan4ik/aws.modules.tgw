@@ -63,7 +63,7 @@ Three `check` blocks warn on a plan and never block it: `deprecated_ram_principa
 | Root `ram_principal_arns` accepted IAM principal ARNs. | IAM users and roles cannot be shared a Transit Gateway. Use `ram_principals` with 12-digit account IDs or Organization and OU ARNs. `ram_principal_arns` still works for those ARNs and warns. |
 | Route domains were a fixed local set of five. | `route_domains` (default: the same five). |
 | `vpc-attachment` took `route_domain` and tagged the attachment with it. | The input is gone: a spoke cannot choose a domain. Pass `attachment_key`, the catalog key the network team issues, and report `attachment.id` and the key. The network account assigns the domain in `network-routing` `approved_account_domains`. |
-| `vpc-attachment` output `attachment.route_domain`. | `attachment.attachment_key` and `attachment.appliance_mode_enable`. |
+| `vpc-attachment` output `attachment.route_domain`. | `attachment.attachment_key` and `attachment.appliance_mode_enable` (renamed `attachment.appliance_mode_support` after 1.0.0 to match the input; see the CHANGELOG). |
 | No flow logs or alarm. | Created by the root: KMS key and alias, log group, delivery role and policy, flow log, two metric filters, alarm, and the `flow_logs` output. |
 | No `network-routing`. | Add it in the network account to accept and route attachments. |
 

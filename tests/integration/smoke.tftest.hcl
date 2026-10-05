@@ -107,4 +107,9 @@ run "smoke" {
     condition     = aws_cloudwatch_metric_alarm.rejected_traffic.arn == output.flow_logs.rejected_traffic_arn && aws_cloudwatch_metric_alarm.rejected_traffic.metric_name == "TransitGatewayRejectedTraffic" && aws_cloudwatch_metric_alarm.rejected_traffic.namespace == "Platform/TransitGateway"
     error_message = "The rejected-traffic alarm must exist and read the metric the filters write."
   }
+
+  assert {
+    condition     = aws_cloudwatch_metric_alarm.flow_log_delivery_stopped.arn == output.flow_logs.delivery_stopped_arn && aws_cloudwatch_metric_alarm.flow_log_delivery_stopped.dimensions["LogGroupName"] == output.flow_logs.log_group_name
+    error_message = "The delivery-stopped alarm must exist and watch the flow-log group."
+  }
 }
