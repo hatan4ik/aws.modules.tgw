@@ -26,6 +26,7 @@ jobs:
         directory:
           - .
           - modules/network-routing
+          - modules/spoke-routes
           - modules/vpc-attachment
           - examples/minimal-hub
           - examples/segmented-domains
