@@ -2,7 +2,7 @@
 
 The network account's half of the attachment handshake. It takes the cross-account VPC attachments a spoke has requested and, for each one the network account has approved, accepts it, verifies who owns the VPC, assigns its route domain, associates it with exactly one route table, propagates it only where the matrix allows, and installs the static and blackhole routes the network account declares. It is the segmentation trust boundary of ADR 0003 (see [docs/DESIGN.md](../../docs/DESIGN.md)) and belongs only in the account that owns the Transit Gateway.
 
-A workload account never supplies a route domain: its attachment key is a lookup key, and the network-side `approved_account_domains` map is the only classification. Attachment tags are evidence, never input.
+A workload account never supplies a route domain: its attachment key is a lookup key, and the network-side `approved_account_domains` map is the only classification. Attachment tags are evidence, never input. After a successful apply, `route_activation_receipts` gives each workload a typed Phase 2 completion contract for the separate `modules/spoke-routes` phase; it does not grant the workload access to this module or its provider.
 
 ## Usage
 
@@ -54,6 +54,7 @@ See [`examples/segmented-domains`](../../examples/segmented-domains) for the hub
 | `prod` never propagates into `non-prod` or the reverse, and a static route in one of those tables never targets an attachment of the other (ADR 0003). | Preconditions on `terraform_data.network_policy`. Blackholes are always allowed. |
 | A static route is a canonical CIDR and exactly one of a blackhole or an approved attachment, once per table and prefix. | Validation on `static_routes`, and a precondition for the target. |
 | Nothing joins a default route table. | `transit_gateway_default_route_table_association` and `..._propagation` are false on the accepter. |
+| A spoke cannot race VPC routes against `pendingAcceptance`. | `route_activation_receipts` depends on the accepter, verified owner, explicit association, and every declared propagation; `modules/spoke-routes` rejects any mismatched or unready receipt. |
 | The isolation rule actually applies: `route_table_ids` has `prod` and `non-prod` keys. | Advisory `check "isolation_domains_present"` (warns, does not block). The isolation preconditions match only those two names, so a catalog that names its domains differently, for example `production` and `nonprod`, would otherwise lose the rule with no message. |
 
 Every resource depends on `terraform_data.network_policy`, so a failed rule creates nothing.
@@ -107,4 +108,5 @@ No modules.
 | <a name="output_accepted_attachments"></a> [accepted\_attachments](#output\_accepted\_attachments) | Accepted cross-account attachment IDs and verified VPC-owner account IDs. |
 | <a name="output_attachment_domains"></a> [attachment\_domains](#output\_attachment\_domains) | Network-account-assigned route domain by approved attachment key. |
 | <a name="output_propagation_ids"></a> [propagation\_ids](#output\_propagation\_ids) | Explicit attachment-to-route-table propagation resource IDs keyed by attachment and destination domain. |
+| <a name="output_route_activation_receipts"></a> [route\_activation\_receipts](#output\_route\_activation\_receipts) | Machine-readable Phase 2 completion receipts. A spoke must consume its receipt through modules/spoke-routes before creating VPC routes to the Transit Gateway. Each receipt is emitted only after owner verification, route-table association, and every declared propagation for that attachment are in the applied network state. |
 <!-- END_TF_DOCS -->
