@@ -4,13 +4,13 @@ Status: accepted 2026-09-27. A hardening-and-standards release of the v0.2.0 mod
 
 ## Purpose
 
-`aws.modules.tgw` is the regional Transit Gateway hub of the platform network. One root call creates one hub: a Transit Gateway with every default disabled, one deny-by-default route table per route domain, an encrypted Transit Gateway Flow Log with an alarm on dropped traffic, and an AWS RAM share for the accounts or Organization principals that may request attachments. Two submodules cover the two other parties in the attachment handshake:
+`aws.modules.tgw` is the regional Transit Gateway hub of the platform network. One root call creates one hub: a Transit Gateway with every default disabled, one deny-by-default route table per route domain, an encrypted Transit Gateway Flow Log with an alarm on dropped traffic, and an AWS RAM share for the accounts or Organization principals that may request attachments. Three submodules cover the two parties and three phases in the attachment handshake:
 
 | Role | Account | Uses | Can do | Cannot do |
 | --- | --- | --- | --- | --- |
 | Hub owner | Network | root module | Create the TGW, route domains, RAM share, flow logs, alarm. | Attach a spoke VPC. |
-| Network account | Network | `modules/network-routing` | Accept a cross-account attachment, verify its VPC owner, assign its route domain, associate it, propagate it, and program static and blackhole routes. | Accept an attachment from an account it did not approve. |
-| Spoke | Workload | `modules/vpc-attachment` | Request an **unclassified** attachment for its own VPC. | Choose a route domain, associate, propagate, or accept. |
+| Network account | Network | `modules/network-routing` | Accept a cross-account attachment, verify its VPC owner, assign its route domain, associate it, propagate it, program static and blackhole routes, and emit a completion receipt. | Accept an attachment from an account it did not approve. |
+| Spoke | Workload | `modules/vpc-attachment`, then `modules/spoke-routes` | Request an **unclassified** attachment, then activate VPC routes from the Network receipt. | Choose a route domain, associate, propagate, accept, or route before verification. |
 
 In practice the hub owner and the network account are the same account and often the same Terraform root; they are separate modules so the trust boundary is visible in code and so a spoke's code can never reach it.
 
@@ -57,7 +57,7 @@ Everything here is interface-neutral: no input, output, or resource address is r
 
 ## Principles applied
 
-- **Single responsibility.** The root owns the hub; `network-routing` owns everything the TGW owner does to an attachment; `vpc-attachment` owns a spoke's request. No module does two of those.
+- **Single responsibility.** The root owns the hub; `network-routing` owns everything the TGW owner does to an attachment; `vpc-attachment` owns a spoke's request; `spoke-routes` owns only gated VPC route activation. No module crosses an account trust boundary.
 - **Secure by default.** The defaults are the ADR's: nothing is associated, propagated, or accepted unless the network account says so, and unclassified attachments have no reachability.
 - **Deny by absence.** A route exists only if a matrix entry or a static route declares it. `propagation_matrix` requires an entry (possibly empty) for every domain that has an attachment, so omission is an explicit choice.
 - **Open/closed.** More domains, principals, accounts, attachments, and routes are data.
@@ -76,6 +76,7 @@ root (one regional hub)
 └── outputs.tf     transit_gateway, route_table_ids, ram_resource_share_arn, flow_logs
 modules/network-routing    network account: accept, verify owner, associate, propagate, static and blackhole routes
 modules/vpc-attachment     spoke account: request an unclassified attachment
+modules/spoke-routes       spoke account: verify the Network receipt and create the authorized VPC routes
 ```
 
 The handshake:
@@ -84,12 +85,15 @@ The handshake:
 2. The RAM share exposes the TGW to the approved principals. The share refuses principals outside the Organization (`allow_external_principals = false`).
 3. **Spoke** applies `vpc-attachment` with the shared TGW ID, its VPC and subnets, and the `attachment_key` the network team gave it. The attachment is created in `pendingAcceptance`, attached to no route table, and its output is the attachment ID.
 4. **Network account** records the attachment in its catalog (`attachments`, `approved_account_domains`, `propagation_matrix`) and applies `network-routing`. For each entry it accepts the attachment, checks that the VPC owner is the approved account, and only then associates it with the account's route domain and propagates it to the destination domains the matrix allows.
+5. The completed Network apply publishes a typed `route_activation_receipts` entry. **Spoke** consumes its exact key through `spoke-routes`; the module checks the attachment ID and key, receipt version and readiness, and AWS caller account before installing VPC routes to the TGW.
 
-Nothing the spoke supplies can influence step 4 other than the attachment ID it hands over.
+Nothing the spoke supplies can influence step 4 other than the attachment ID it hands over. No polling service or cross-account mutation is required: the separate Terraform states and pipeline dependency are the state machine.
 
-## Interface (unchanged)
+## Interface at the v1.0.0 release
 
 The resource addresses, input names and types, and output names and shapes of the three modules are identical to v0.2.0. The only differences a consumer can observe are stricter plan-time validations (listed above), the new preconditions in `network-routing`, and in-place updates on the flow-log resources of a hub that was already applied (v0.2.0's could not have been). [UPGRADE-1.0.md](UPGRADE-1.0.md) is a one-line ref change plus a checklist.
+
+The post-v1 three-phase GitOps addition is backward compatible: it adds `route_activation_receipts` to `network-routing` and introduces `modules/spoke-routes`; it changes no existing input, output shape, or resource address. Existing consumers can ignore both until they adopt phased route activation.
 
 ## Security defaults
 

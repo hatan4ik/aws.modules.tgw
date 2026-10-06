@@ -1,6 +1,6 @@
 # aws.modules.tgw
 
-The regional Transit Gateway hub of the platform network. One module call creates one hub: a Transit Gateway with every default disabled, one deny-by-default route table per route domain, an encrypted Transit Gateway Flow Log with an alarm on dropped traffic, and an AWS RAM share for the accounts or Organization principals that may request attachments. Two submodules cover the other parties in the attachment handshake: `modules/network-routing` lets the network account accept, verify, classify, associate, propagate, and route each cross-account attachment, and `modules/vpc-attachment` lets a spoke request an **unclassified** attachment and nothing more. It implements ADR 0003 (segmented Transit Gateway hubs) as code, is secure by default and explicit by declaration, and manages no VPN, peering, or on-premises routing. Requires Terraform >= 1.7 and the AWS provider >= 6.35, < 7.
+The regional Transit Gateway hub of the platform network. One module call creates one hub: a Transit Gateway with every default disabled, one deny-by-default route table per route domain, an encrypted Transit Gateway Flow Log with an alarm on dropped traffic, and an AWS RAM share for the accounts or Organization principals that may request attachments. Three submodules cover the phased attachment handshake: `modules/vpc-attachment` lets a spoke request an **unclassified** attachment, `modules/network-routing` lets the network account accept, verify, classify, associate, propagate, and route it, and `modules/spoke-routes` creates workload VPC routes only after consuming the Network account's machine-readable completion receipt. It implements ADR 0003 (segmented Transit Gateway hubs) as code, is secure by default and explicit by declaration, and manages no VPN, peering, or on-premises routing. Requires Terraform >= 1.7 and the AWS provider >= 6.35, < 7.
 
 ## Why this module
 
@@ -60,7 +60,7 @@ module "routing" {
   approved_account_domains = { "111122223333" = "prod", "444455556666" = "non-prod" }
 
   attachments = {
-    prod-app = { attachment_id = "tgw-attach-0123456789abcdef0", account_id = "111122223333" }
+    prod-app-use2 = { attachment_id = "tgw-attach-0123456789abcdef0", account_id = "111122223333" }
   }
 
   propagation_matrix = {
@@ -77,13 +77,29 @@ module "routing" {
 }
 ```
 
+After that separate Network-account apply, the spoke consumes its receipt and activates VPC routes:
+
+```hcl
+module "spoke_routes" {
+  source = "git::https://github.com/hatan4ik/aws.modules.tgw.git//modules/spoke-routes?ref=<commit-sha>" # release tag
+
+  attachment                 = module.attachment.attachment
+  network_acceptance_receipt = data.terraform_remote_state.network_routing.outputs.route_activation_receipts["prod-app-use2"]
+
+  routes = {
+    private-a = { route_table_id = module.vpc.private_route_table_ids[0], destination_cidr_block = "10.0.0.0/8" }
+    private-b = { route_table_id = module.vpc.private_route_table_ids[1], destination_cidr_block = "10.0.0.0/8" }
+  }
+}
+```
+
 ## The three roles
 
 | Role | Account | Module | Owns | Never does |
 | --- | --- | --- | --- | --- |
 | Hub owner | Network | root | The Transit Gateway, the route domains, the RAM share, the flow log and alarm. | Attach a spoke VPC. |
 | Network account | Network | [`modules/network-routing`](modules/network-routing) | Accepting each attachment, verifying its VPC owner, assigning its route domain, association, propagation, static and blackhole routes. | Accept an attachment from an account it has not approved, or connect `prod` and `non-prod` directly. |
-| Spoke | Workload | [`modules/vpc-attachment`](modules/vpc-attachment) | Requesting an attachment for its own VPC under a catalog key. | Choose a route domain, associate, propagate, or accept. |
+| Spoke | Workload | [`modules/vpc-attachment`](modules/vpc-attachment), then [`modules/spoke-routes`](modules/spoke-routes) | Requesting an attachment for its own VPC, then activating VPC routes after the Network receipt exists. | Choose a route domain, associate, propagate, accept, or create routes before verification. |
 
 The hub owner and the network account are usually the same account and often the same Terraform root. They are separate modules so the trust boundary is visible in code and a spoke's code can never reach it.
 
@@ -100,6 +116,7 @@ root (one regional hub)
 modules/network-routing    terraform_data.network_policy (preconditions); vpc_attachment_accepter, route_table_association,
                            route_table_propagation, route: everything the TGW owner does to an attachment
 modules/vpc-attachment     one aws_ec2_transit_gateway_vpc_attachment with no default route table
+modules/spoke-routes       terraform_data.route_activation_barrier; aws_route only after a Network-account completion receipt
 ```
 
 The attachment handshake, and who acts at each step:
@@ -108,8 +125,9 @@ The attachment handshake, and who acts at each step:
 2. RAM exposes the gateway to the approved principals, and only to principals inside the organization.
 3. A spoke applies `vpc-attachment`. The attachment is created in `pendingAcceptance`, attached to no route table, and its output is the attachment ID and the catalog key.
 4. The network account adds the attachment to its catalog and applies `network-routing`. For each entry it accepts the attachment, checks the reported VPC owner against the approved account, and only then associates the attachment with its account's route domain and propagates it into the destination domains the matrix lists.
+5. `network-routing` emits a `route_activation_receipts` entry after the association and all declared propagations are in state. The spoke's next GitOps phase consumes that exact entry through `spoke-routes`, which verifies the attachment key, ID, and current workload account before creating any VPC route.
 
-Nothing the spoke supplies can influence step 4 except the attachment ID it hands over.
+Nothing the spoke supplies can influence step 4 except the attachment ID it hands over. Phase 3 cannot make an unaccepted attachment ready: it only consumes Network-owned evidence.
 
 ## Usage patterns
 
@@ -148,7 +166,7 @@ Flow logs
 
 Not created here
 
-- VPN, Direct Connect gateway, peering, and Connect attachments and the routing for on-premises networks, Route 53 Resolver rules, and the spoke VPCs and their routes to the gateway. They are separately approved compositions (ADR 0003, ADR 0005) that consume `transit_gateway` and `route_table_ids`.
+- VPN, Direct Connect gateway, peering, and Connect attachments and the routing for on-premises networks, Route 53 Resolver rules, and the spoke VPCs themselves. They are separately approved compositions (ADR 0003, ADR 0005); gated spoke VPC routes are owned by `modules/spoke-routes`.
 
 ## Lifecycle notes
 
@@ -166,12 +184,12 @@ Not created here
 
 Two layers, deliberately separate:
 
-- **Contract tests** (`tests/`, `modules/*/tests/`, run by `make test` and by CI) use `mock_provider`: no credentials, nothing created. They cover the secure defaults, every variable validation with `expect_failures`, every precondition (including the ADR 0003 isolation rule in both directions), every check block, the flow-log fields against the AWS Transit Gateway record reference, and the JSON documents the module renders. Assertions that need values known only after apply, such as the wiring between resources and the owner-verification postcondition, run in their own `command = apply` files with explicit `mock_resource` defaults so they cannot leak into the plan runs.
+- **Contract tests** (`tests/`, `modules/*/tests/`, run by `make test` and by CI) use `mock_provider`: no credentials, nothing created. They cover the secure defaults, every variable validation with `expect_failures`, every precondition (including the ADR 0003 isolation rule and every Phase 3 receipt barrier), every check block, the flow-log fields against the AWS Transit Gateway record reference, and the JSON documents the module renders. Assertions that need values known only after apply, such as the wiring between resources and the owner-verification postcondition, run in their own `command = apply` files with explicit `mock_resource` defaults so they cannot leak into the plan runs.
 - **Integration suite** (`tests/integration/`, run by `make integration-smoke` or the dispatch-only `integration` workflow) applies one hub with no attachments in **your** account with **your** credentials and region from the environment, asserts what the real APIs report, and destroys it. It is the only test that proves AWS accepts the flow-log record format, the delivery role's trust policy, and the filter patterns. Attachments are billed by the hour and need two accounts, so the handshake is covered by the contract tests only. See [tests/integration/README.md](tests/integration/README.md) for permissions and the GitHub environment contract.
 
 ## Design principles
 
-- Single responsibility. The root owns the hub, `network-routing` owns everything the gateway owner does to an attachment, and `vpc-attachment` owns a spoke's request. Concerns are split by file in the root: `main.tf`, `ram.tf`, `flow_logs.tf`, `locals.tf`, `checks.tf`.
+- Single responsibility. The root owns the hub, `network-routing` owns everything the gateway owner does to an attachment, `vpc-attachment` owns a spoke's request, and `spoke-routes` owns only the gated Phase 3 VPC routes. Concerns are split by file in the root: `main.tf`, `ram.tf`, `flow_logs.tf`, `locals.tf`, `checks.tf`.
 - Open/closed. New segments, principals, accounts, attachments, and routes are data: another domain in `route_domains`, another entry in `approved_account_domains`, `attachments`, or `static_routes`. Nothing needs the module edited.
 - Liskov substitution. `network-routing` consumes route-table IDs, not the hub module, so a hub and its routing may live in one root or two, and any producer of the same map can replace the hub.
 - Interface segregation. A spoke sees six inputs and no routing concept; the network account sees no flow-log concept.

@@ -6,7 +6,8 @@
 mock_provider "aws" {
   mock_resource "aws_ec2_transit_gateway_vpc_attachment_accepter" {
     defaults = {
-      vpc_owner_id = "111122223333"
+      transit_gateway_id = "tgw-0123abcd"
+      vpc_owner_id       = "111122223333"
     }
   }
 }
@@ -70,5 +71,21 @@ run "proceeds_when_the_vpc_owner_is_the_approved_account" {
   assert {
     condition     = toset(keys(output.propagation_ids)) == toset(["prod-app:prod", "prod-app:shared", "prod-batch:prod", "prod-batch:shared"]) && length(aws_ec2_transit_gateway_route.static) == 1
     error_message = "propagation_ids is keyed by attachment and destination domain; the static route is created."
+  }
+
+  assert {
+    condition = (
+      output.route_activation_receipts["prod-app"].contract_version == 1 &&
+      output.route_activation_receipts["prod-app"].ready &&
+      output.route_activation_receipts["prod-app"].attachment_key == "prod-app" &&
+      output.route_activation_receipts["prod-app"].attachment_id == "tgw-attach-0123abcd" &&
+      output.route_activation_receipts["prod-app"].transit_gateway_id == "tgw-0123abcd" &&
+      output.route_activation_receipts["prod-app"].vpc_owner_id == "111122223333" &&
+      output.route_activation_receipts["prod-app"].route_domain == "prod" &&
+      output.route_activation_receipts["prod-app"].associated_route_table_id == "tgw-rtb-0123abcd" &&
+      length(output.route_activation_receipts["prod-app"].association_id) > 0 &&
+      length(output.route_activation_receipts["prod-app"].propagation_ids) == 2
+    )
+    error_message = "The route-activation receipt must prove owner verification, association, and every declared propagation for the attachment."
   }
 }
